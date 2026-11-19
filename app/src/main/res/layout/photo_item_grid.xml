@@ -77,4 +77,17 @@
             android:textSize="@dimen/smaller_text_size"
             tools:text="My photo" />
     </LinearLayout>
+
+    <ImageView
+        android:id="@+id/grid_delete"
+        android:layout_width="@dimen/selection_check_size"
+        android:layout_height="@dimen/selection_check_size"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentBottom="true"
+        android:layout_margin="@dimen/smaller_margin"
+        android:background="@drawable/circle_black_background"
+        android:contentDescription="@string/delete"
+        android:elevation="2dp"
+        android:padding="@dimen/small_margin"
+        android:src="@drawable/ic_delete_vector" />
 </RelativeLayout>

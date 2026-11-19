@@ -4,6 +4,10 @@ import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
+import android.graphics.SurfaceTexture
+import android.net.Uri
+import android.view.Surface
+import android.view.TextureView
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
@@ -11,6 +15,9 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.allViews
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.bumptech.glide.Glide
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import org.fossify.commons.activities.BaseSimpleActivity
@@ -92,6 +99,7 @@ import org.fossify.gallery.interfaces.MediaOperationsListener
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 import org.fossify.gallery.models.ThumbnailSection
+import java.io.File
 
 class MediaAdapter(
     activity: BaseSimpleActivity,
@@ -121,6 +129,7 @@ class MediaAdapter(
     private var cropThumbnails = config.cropThumbnails
     private var displayFilenames = config.displayFileNames
     private var showFileTypes = config.showThumbnailFileTypes
+    private val previewPlayers = HashMap<Int, ExoPlayer>()
 
     var sorting = config.getFolderSorting(if (config.showAll) SHOW_ALL else path)
     var dateFormat = config.dateFormat
@@ -159,6 +168,7 @@ class MediaAdapter(
         holder.bindView(tmbItem, tmbItem is Medium, allowLongPress) { itemView, adapterPosition ->
             if (tmbItem is Medium) {
                 setupThumbnail(itemView, tmbItem)
+                setupMp4Preview(itemView, tmbItem)
             } else {
                 setupSection(itemView, tmbItem as ThumbnailSection)
             }
@@ -255,7 +265,64 @@ class MediaAdapter(
             if (tmb != null) {
                 Glide.with(activity).clear(tmb)
             }
+            releasePreview(holder.itemView)
         }
+    }
+
+    private fun releasePreview(itemView: View) {
+        val preview = itemView.findViewById<TextureView>(R.id.medium_video_preview)
+        val key = preview.hashCode()
+        previewPlayers.remove(key)?.apply {
+            playWhenReady = false
+            clearVideoSurface()
+            release()
+        }
+        preview?.beGone()
+    }
+
+    private fun setupMp4Preview(itemView: View, medium: Medium) {
+        val preview = itemView.findViewById<TextureView>(R.id.medium_video_preview) ?: return
+
+        releasePreview(itemView)
+        if (isListViewType || !medium.isVideo() || !medium.name.endsWith(".mp4", ignoreCase = true)) {
+            preview.beGone()
+            return
+        }
+
+        val listener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+                val uri = if (medium.path.startsWith("content://")) {
+                    Uri.parse(medium.path)
+                } else {
+                    Uri.fromFile(File(medium.path))
+                }
+                val player = ExoPlayer.Builder(activity).build().apply {
+                    repeatMode = Player.REPEAT_MODE_ONE
+                    volume = 0f
+                    setMediaItem(MediaItem.fromUri(uri))
+                    prepare()
+                    setVideoSurface(Surface(surfaceTexture))
+                    playWhenReady = true
+                }
+                previewPlayers[preview.hashCode()] = player
+            }
+
+            override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {}
+
+            override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                releasePreview(itemView)
+                return true
+            }
+
+            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
+        }
+        preview.surfaceTextureListener = listener
+        if (preview.isAvailable) {
+            preview.surfaceTexture?.let {
+                listener.onSurfaceTextureAvailable(it, preview.width, preview.height)
+            }
+        }
+        preview.beVisible()
     }
 
     fun isASectionTitle(position: Int) = media.getOrNull(position) is ThumbnailSection
@@ -713,6 +780,15 @@ class MediaAdapter(
             if (isSelected) {
                 mediumCheck.background?.applyColorFilter(properPrimaryColor)
                 mediumCheck.applyColorFilter(contrastColor)
+            }
+
+            gridDelete?.apply {
+                beVisibleIf(!isListViewType)
+                setOnClickListener {
+                    selectedKeys.clear()
+                    selectedKeys.add(medium.path.hashCode())
+                    checkDeleteConfirmation()
+                }
             }
 
             if (isListViewType) {
